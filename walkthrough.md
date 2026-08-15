@@ -66,8 +66,9 @@
 
 ```
 youtube-subscript/
-├── 실행하기.bat              # ⭐ 더블 클릭 실행 파일
-├── run.bat                  # 영문 실행 파일
+├── 실행하기.vbs              # ⭐ 검은 창 없는 완전 무음 실행 파일
+├── 실행하기.bat              # 배치 실행 파일
+├── run.vbs / run.bat        # 영문 실행 파일
 ├── gui_app.py               # 데스크톱 팝업 GUI 프로그램
 ├── backend/
 │   ├── requirements.txt     # Python 의존성
