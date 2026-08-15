@@ -480,7 +480,7 @@ class YouTubeTranscriptApp(ctk.CTk):
         import aiofiles
 
         job_id = str(uuid.uuid4())
-        job_dir = os.path.join(self.output_dir, job_id)
+        job_dir = self.output_dir
         os.makedirs(job_dir, exist_ok=True)
 
         total = len(selected_videos)

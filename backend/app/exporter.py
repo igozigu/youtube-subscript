@@ -9,36 +9,41 @@ from .models import VideoJobStatus, VideoStatus
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "output")
 
 
-def _find_txt_path(job_dir: str, res: VideoJobStatus) -> Optional[str]:
+def _find_txt_path(job_id: str, res: VideoJobStatus) -> Optional[str]:
     """해당 영상의 텍스트 파일 경로를 찾는다."""
-    candidates = []
-    if res.file_name:
-        candidates.append(os.path.join(job_dir, res.file_name))
+    search_dirs = [
+        OUTPUT_DIR,
+        os.path.join(OUTPUT_DIR, job_id),
+    ]
 
-    safe_title = sanitize_filename(res.title)
-    if res.upload_date:
-        candidates.append(os.path.join(job_dir, f"{res.upload_date}_{safe_title}.txt"))
-    candidates.append(os.path.join(job_dir, f"{safe_title}.txt"))
-    candidates.append(os.path.join(job_dir, f"{res.video_id}.txt"))
+    for job_dir in search_dirs:
+        candidates = []
+        if res.file_name:
+            candidates.append(os.path.join(job_dir, res.file_name))
 
-    for p in candidates:
-        if os.path.exists(p):
-            return p
+        safe_title = sanitize_filename(res.title)
+        if res.upload_date:
+            candidates.append(os.path.join(job_dir, f"{res.upload_date}_{safe_title}.txt"))
+        candidates.append(os.path.join(job_dir, f"{safe_title}.txt"))
+        candidates.append(os.path.join(job_dir, f"{res.video_id}.txt"))
+
+        for p in candidates:
+            if os.path.exists(p):
+                return p
     return None
 
 
 async def export_zip(
     job_id: str, results: List[VideoJobStatus], source_title: str
 ) -> str:
-    """개별 영상 txt 파일을 ZIP으로 압축한다."""
-    job_dir = os.path.join(OUTPUT_DIR, job_id)
-    os.makedirs(job_dir, exist_ok=True)
-    zip_path = os.path.join(job_dir, f"{sanitize_filename(source_title)}.zip")
+    """개별 영상 txt 파일을 ZIP으로 압축하여 output 폴더에 바로 생성한다."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    zip_path = os.path.join(OUTPUT_DIR, f"{sanitize_filename(source_title)}.zip")
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         for res in results:
             if res.status == VideoStatus.COMPLETED:
-                txt_path = _find_txt_path(job_dir, res)
+                txt_path = _find_txt_path(job_id, res)
                 if txt_path:
                     safe_title = sanitize_filename(res.title)
                     arcname = res.file_name or (
@@ -54,10 +59,9 @@ async def export_zip(
 async def export_markdown(
     job_id: str, results: List[VideoJobStatus], source_title: str
 ) -> str:
-    """전체 대본을 하나의 Markdown 파일로 합친다."""
-    job_dir = os.path.join(OUTPUT_DIR, job_id)
-    os.makedirs(job_dir, exist_ok=True)
-    md_path = os.path.join(job_dir, f"{sanitize_filename(source_title)}.md")
+    """전체 대본을 하나의 Markdown 파일로 합쳐 output 폴더에 바로 생성한다."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    md_path = os.path.join(OUTPUT_DIR, f"{sanitize_filename(source_title)}.md")
 
     async with aiofiles.open(md_path, "w", encoding="utf-8") as f:
         await f.write(f"# {source_title}\n\n")
@@ -71,7 +75,7 @@ async def export_markdown(
             await f.write(f"- **원본 URL**: {video_url}\n\n")
 
             if res.status == VideoStatus.COMPLETED:
-                txt_path = _find_txt_path(job_dir, res)
+                txt_path = _find_txt_path(job_id, res)
                 if txt_path:
                     async with aiofiles.open(
                         txt_path, "r", encoding="utf-8"
@@ -91,11 +95,10 @@ async def export_markdown(
 async def export_json(
     job_id: str, results: List[VideoJobStatus], source_title: str
 ) -> str:
-    """JSON 형식으로 내보낸다 (video_id, title, upload_date, transcript, language 포함)."""
-    job_dir = os.path.join(OUTPUT_DIR, job_id)
-    os.makedirs(job_dir, exist_ok=True)
+    """JSON 형식으로 output 폴더에 바로 생성한다."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     json_path = os.path.join(
-        job_dir, f"{sanitize_filename(source_title)}.json"
+        OUTPUT_DIR, f"{sanitize_filename(source_title)}.json"
     )
 
     export_data = {
@@ -106,7 +109,7 @@ async def export_json(
     for res in results:
         transcript_content = None
         if res.status == VideoStatus.COMPLETED:
-            txt_path = _find_txt_path(job_dir, res)
+            txt_path = _find_txt_path(job_id, res)
             if txt_path:
                 with open(txt_path, "r", encoding="utf-8") as tf:
                     transcript_content = tf.read()
