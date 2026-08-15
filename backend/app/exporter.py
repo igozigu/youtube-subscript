@@ -6,7 +6,7 @@ from typing import List, Optional
 from .text_cleaner import sanitize_filename
 from .models import VideoJobStatus, VideoStatus
 
-OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "data/output")
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "output")
 
 
 def _find_txt_path(job_dir: str, res: VideoJobStatus) -> Optional[str]:

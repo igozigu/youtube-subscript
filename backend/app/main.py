@@ -177,7 +177,7 @@ async def upload_cookies(file: UploadFile = File(...)):
     YouTube 인증 쿠키 파일을 업로드한다.
     봇 감지 차단 시 쿠키를 사용하여 인증을 우회할 수 있다.
     """
-    cookie_dir = os.environ.get("OUTPUT_DIR", "data/output")
+    cookie_dir = os.environ.get("OUTPUT_DIR", "output")
     os.makedirs(cookie_dir, exist_ok=True)
     cookie_path = os.path.join(cookie_dir, "cookies.txt")
 
@@ -197,7 +197,7 @@ async def upload_cookies(file: UploadFile = File(...)):
 @app.delete("/api/cookies")
 async def delete_cookies():
     """업로드된 쿠키 파일을 삭제한다."""
-    cookie_dir = os.environ.get("OUTPUT_DIR", "data/output")
+    cookie_dir = os.environ.get("OUTPUT_DIR", "output")
     cookie_path = os.path.join(cookie_dir, "cookies.txt")
 
     if os.path.exists(cookie_path):

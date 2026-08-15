@@ -46,10 +46,11 @@ class YouTubeTranscriptApp(ctk.CTk):
         self.video_widgets: Dict[str, dict] = {}
         self.source_title: str = "YouTube_대본"
         self.cookie_path: Optional[str] = None
-        self.output_dir: str = os.path.join(current_dir, "data", "output")
+        self.output_dir: str = os.path.join(current_dir, "output")
         self.is_processing: bool = False
 
         os.makedirs(self.output_dir, exist_ok=True)
+        os.environ["OUTPUT_DIR"] = self.output_dir
 
         self._build_ui()
 

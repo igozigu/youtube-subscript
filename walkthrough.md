@@ -53,7 +53,7 @@
   - `cookies.txt` 파일 선택 지원
 
 ### 3.3 결과 저장 형식
-- 파일명: `data/output/{job_id}/{업로드일}_{영상제목}.txt`
+- 파일명: `output/{job_id}/{업로드일}_{영상제목}.txt`
 - 출력 포맷:
   1. **ZIP**: 개별 txt 파일들을 압축한 zip 파일
   2. **Markdown (MD)**: 전체 영상 대본 통합 문서 (제목, 업로드일, 언어, 원본 URL 포함)
@@ -86,8 +86,7 @@ youtube-subscript/
 │       ├── test_transcript_fetcher.py
 │       └── test_exporter.py
 ├── frontend/                # (선택적) 웹 UI 리액트 앱
-├── data/
-│   └── output/              # 결과물 저장 폴더
+├── output/                  # 결과물 저장 폴더 (.gitignore 대상)
 ├── README.md
 ├── history.md
 └── walkthrough.md           # (본 문서)

@@ -76,8 +76,7 @@ youtube-subscript/
 │       ├── test_transcript_fetcher.py
 │       └── test_exporter.py
 ├── frontend/                # (선택적) 웹 UI 리액트 앱
-├── data/
-│   └── output/              # 추출된 파일 저장소
+├── output/                  # 추출된 파일 저장소 (.gitignore 대상)
 ├── .env.example
 ├── .gitignore
 ├── README.md

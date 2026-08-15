@@ -82,7 +82,7 @@ async def process_job(
     video_info_map: Dict[str, VideoInfo] = meta.get("video_info_map", {})
 
     job_dir = os.path.join(
-        os.environ.get("OUTPUT_DIR", "data/output"), job_id
+        os.environ.get("OUTPUT_DIR", "output"), job_id
     )
     os.makedirs(job_dir, exist_ok=True)
 
