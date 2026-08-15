@@ -4,6 +4,8 @@ YouTube 채널/재생목록 대본 추출기 - 데스크톱 팝업 프로그램 
 
 import os
 import sys
+import time
+import random
 import asyncio
 import threading
 import subprocess
@@ -22,7 +24,7 @@ from tkinter import filedialog, messagebox
 
 from app.url_parser import detect_url_type
 from app.video_lister import list_videos
-from app.transcript_fetcher import fetch_transcript, YoutubeBlockedError
+from app.transcript_fetcher import fetch_transcript, validate_cookie_file, YoutubeBlockedError
 from app.text_cleaner import sanitize_filename
 from app.exporter import export_zip, export_markdown, export_json
 from app.models import VideoInfo, VideoJobStatus, VideoStatus
@@ -37,13 +39,14 @@ class YouTubeTranscriptApp(ctk.CTk):
         super().__init__()
 
         self.title("📺 YouTube 채널/재생목록 대본 추출기")
-        self.geometry("960x780")
-        self.minsize(800, 600)
+        self.geometry("980x800")
+        self.minsize(820, 620)
 
         # 데이터 상태
         self.videos: List[VideoInfo] = []
         self.video_vars: Dict[str, ctk.BooleanVar] = {}
         self.video_widgets: Dict[str, dict] = {}
+        self.video_statuses: Dict[str, VideoStatus] = {}
         self.source_title: str = "YouTube_대본"
         self.cookie_path: Optional[str] = None
         self.output_dir: str = os.path.join(current_dir, "output")
@@ -63,7 +66,6 @@ class YouTubeTranscriptApp(ctk.CTk):
         self._build_ui()
 
     def _build_ui(self):
-        # 최상위 컨테이너 그리드 설정
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
@@ -121,11 +123,11 @@ class YouTubeTranscriptApp(ctk.CTk):
 
         self.shorts_var = ctk.BooleanVar(value=False)
         self.shorts_check = ctk.CTkCheckBox(options_subframe, text="쇼츠 포함", variable=self.shorts_var)
-        self.shorts_check.pack(side="left", padx=(0, 15))
+        self.shorts_check.pack(side="left", padx=(0, 12))
 
         self.live_var = ctk.BooleanVar(value=False)
         self.live_check = ctk.CTkCheckBox(options_subframe, text="라이브 스트림 포함", variable=self.live_var)
-        self.live_check.pack(side="left", padx=(0, 20))
+        self.live_check.pack(side="left", padx=(0, 15))
 
         self.cookie_btn = ctk.CTkButton(
             options_subframe,
@@ -150,8 +152,13 @@ class YouTubeTranscriptApp(ctk.CTk):
         )
         self.cookie_help_btn.pack(side="left", padx=3)
 
-        cookie_txt = f"적용됨: {os.path.basename(self.cookie_path)}" if self.cookie_path else ""
-        cookie_col = "green" if self.cookie_path else "gray"
+        cookie_txt = ""
+        cookie_col = "gray"
+        if self.cookie_path:
+            is_valid, msg = validate_cookie_file(self.cookie_path)
+            cookie_txt = f"적용됨: {os.path.basename(self.cookie_path)} ({msg})"
+            cookie_col = "#4caf50" if is_valid else "#ff9800"
+
         self.cookie_label = ctk.CTkLabel(options_subframe, text=cookie_txt, font=ctk.CTkFont(size=11), text_color=cookie_col)
         self.cookie_label.pack(side="left", padx=5)
 
@@ -176,25 +183,30 @@ class YouTubeTranscriptApp(ctk.CTk):
         tool_frame.pack(side="right")
 
         self.select_all_btn = ctk.CTkButton(
-            tool_frame, text="전체 선택", width=80, height=28, command=self._select_all
+            tool_frame, text="전체 선택", width=70, height=28, command=self._select_all
         )
-        self.select_all_btn.pack(side="left", padx=3)
+        self.select_all_btn.pack(side="left", padx=2)
 
         self.deselect_all_btn = ctk.CTkButton(
-            tool_frame, text="선택 해제", width=80, height=28, fg_color="#555555", command=self._deselect_all
+            tool_frame, text="선택 해제", width=70, height=28, fg_color="#555555", command=self._deselect_all
         )
-        self.deselect_all_btn.pack(side="left", padx=3)
+        self.deselect_all_btn.pack(side="left", padx=2)
 
-        ctk.CTkLabel(tool_frame, text="최근").pack(side="left", padx=(10, 2))
-        self.recent_count_entry = ctk.CTkEntry(tool_frame, width=50, height=28)
+        self.select_failed_btn = ctk.CTkButton(
+            tool_frame, text="🔄 실패/차단만 선택", width=120, height=28, fg_color="#e65100", hover_color="#bf360c", command=self._select_failed_only
+        )
+        self.select_failed_btn.pack(side="left", padx=3)
+
+        ctk.CTkLabel(tool_frame, text="최근").pack(side="left", padx=(8, 2))
+        self.recent_count_entry = ctk.CTkEntry(tool_frame, width=45, height=28)
         self.recent_count_entry.insert(0, "10")
         self.recent_count_entry.pack(side="left", padx=2)
         ctk.CTkLabel(tool_frame, text="개").pack(side="left", padx=2)
 
         self.select_recent_btn = ctk.CTkButton(
-            tool_frame, text="선택", width=50, height=28, command=self._select_recent
+            tool_frame, text="선택", width=45, height=28, command=self._select_recent
         )
-        self.select_recent_btn.pack(side="left", padx=3)
+        self.select_recent_btn.pack(side="left", padx=2)
 
         # 스크롤 가능한 영상 리스트 프레임
         self.scroll_frame = ctk.CTkScrollableFrame(list_container)
@@ -218,20 +230,26 @@ class YouTubeTranscriptApp(ctk.CTk):
         config_row.grid(row=0, column=0, padx=15, pady=(10, 5), sticky="ew")
 
         ctk.CTkLabel(config_row, text="🌐 자막 언어:").pack(side="left", padx=(0, 5))
-        self.lang_entry = ctk.CTkEntry(config_row, width=100, height=30)
+        self.lang_entry = ctk.CTkEntry(config_row, width=90, height=30)
         self.lang_entry.insert(0, "ko, en")
-        self.lang_entry.pack(side="left", padx=(0, 20))
+        self.lang_entry.pack(side="left", padx=(0, 15))
 
-        ctk.CTkLabel(config_row, text="📁 출력 포맷:").pack(side="left", padx=(0, 5))
+        ctk.CTkLabel(config_row, text="📁 출력:").pack(side="left", padx=(0, 5))
         self.format_var = ctk.StringVar(value="all")
         self.format_menu = ctk.CTkOptionMenu(
             config_row,
             variable=self.format_var,
             values=["모두 생성 (ZIP+MD+JSON)", "ZIP (개별 txt)", "Markdown (.md 통합)", "JSON (.json 정형)"],
-            width=180,
+            width=175,
             height=30,
         )
-        self.format_menu.pack(side="left", padx=(0, 20))
+        self.format_menu.pack(side="left", padx=(0, 15))
+
+        ctk.CTkLabel(config_row, text="⏱️ 텀:").pack(side="left", padx=(0, 5))
+        self.delay_entry = ctk.CTkEntry(config_row, width=45, height=30)
+        self.delay_entry.insert(0, "1.5")
+        self.delay_entry.pack(side="left", padx=(0, 2))
+        ctk.CTkLabel(config_row, text="초(안전)").pack(side="left", padx=(0, 15))
 
         self.open_dir_btn = ctk.CTkButton(
             config_row,
@@ -278,7 +296,7 @@ class YouTubeTranscriptApp(ctk.CTk):
         msg = (
             "🍪 cookies.txt 추출 및 적용 방법 (30초 완료):\n\n"
             "1. Chrome 또는 Edge 브라우저 확장 프로그램 설치:\n"
-            "   • 'Get cookies.txt LOCALLY' (무료)\n\n"
+            "   • 웹스토어 검색: 'Get cookies.txt LOCALLY' (무료)\n\n"
             "2. 유튜브(youtube.com) 사이트 접속 후 확장 프로그램 클릭:\n"
             "   • [Export] 버튼 클릭 → 'cookies.txt' 다운로드\n\n"
             "3. 이 프로그램 상단의 [🍪 cookies.txt 선택] 클릭 후 다운받은 파일 선택!\n\n"
@@ -292,10 +310,16 @@ class YouTubeTranscriptApp(ctk.CTk):
             filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
         )
         if path:
+            is_valid, msg = validate_cookie_file(path)
             self.cookie_path = path
             os.environ["COOKIE_FILE_PATH"] = path
             filename = os.path.basename(path)
-            self.cookie_label.configure(text=f"적용됨: {filename}", text_color="green")
+            if is_valid:
+                self.cookie_label.configure(text=f"적용됨: {filename} ({msg})", text_color="#4caf50")
+                messagebox.showinfo("쿠키 적용 완료", f"쿠키 파일이 성공적으로 적용되었습니다!\n\n{msg}")
+            else:
+                self.cookie_label.configure(text=f"주의: {filename} ({msg})", text_color="#ff9800")
+                messagebox.showwarning("쿠키 확인 필요", f"쿠키 파일을 읽었으나 다음을 확인해주세요:\n\n{msg}")
 
     def _open_output_dir(self):
         if not os.path.exists(self.output_dir):
@@ -358,6 +382,7 @@ class YouTubeTranscriptApp(ctk.CTk):
 
         self.video_vars.clear()
         self.video_widgets.clear()
+        self.video_statuses.clear()
 
         if not videos:
             ctk.CTkLabel(
@@ -424,6 +449,7 @@ class YouTubeTranscriptApp(ctk.CTk):
                 "frame": item_frame,
                 "status_label": status_label,
             }
+            self.video_statuses[video.video_id] = VideoStatus.PENDING
 
         self._update_selected_count()
 
@@ -435,6 +461,15 @@ class YouTubeTranscriptApp(ctk.CTk):
     def _deselect_all(self):
         for var in self.video_vars.values():
             var.set(False)
+        self._update_selected_count()
+
+    def _select_failed_only(self):
+        for vid, status in self.video_statuses.items():
+            if vid in self.video_vars:
+                if status in (VideoStatus.BLOCKED, VideoStatus.FAILED, VideoStatus.NO_SUBTITLE):
+                    self.video_vars[vid].set(True)
+                else:
+                    self.video_vars[vid].set(False)
         self._update_selected_count()
 
     def _select_recent(self):
@@ -451,7 +486,6 @@ class YouTubeTranscriptApp(ctk.CTk):
 
     def _update_selected_count(self):
         selected_count = sum(1 for v in self.video_vars.values() if v.get())
-        total_count = len(self.videos)
         self.start_btn.configure(text=f"🚀 대본 추출 시작 ({selected_count}개)")
 
     def _format_duration(self, seconds: Optional[int]) -> str:
@@ -488,16 +522,21 @@ class YouTubeTranscriptApp(ctk.CTk):
         if not langs:
             langs = ["ko", "en"]
 
+        try:
+            base_delay = float(self.delay_entry.get().strip())
+        except ValueError:
+            base_delay = 1.5
+
         selected_videos = [v for v in self.videos if v.video_id in selected_video_ids]
 
         thread = threading.Thread(
             target=self._extraction_worker,
-            args=(selected_videos, langs, self.format_var.get()),
+            args=(selected_videos, langs, self.format_var.get(), base_delay),
             daemon=True,
         )
         thread.start()
 
-    def _extraction_worker(self, selected_videos: List[VideoInfo], languages: List[str], export_fmt_choice: str):
+    def _extraction_worker(self, selected_videos: List[VideoInfo], languages: List[str], export_fmt_choice: str, base_delay: float):
         import uuid
 
         job_id = str(uuid.uuid4())
@@ -551,22 +590,26 @@ class YouTubeTranscriptApp(ctk.CTk):
                             f.write(transcript)
 
                         success_count += 1
+                        self.video_statuses[vid] = VideoStatus.COMPLETED
                         self.after(0, self._update_video_ui_status, vid, "✅ 완료", "#4caf50")
                     else:
                         res.status = VideoStatus.NO_SUBTITLE
                         no_sub_count += 1
+                        self.video_statuses[vid] = VideoStatus.NO_SUBTITLE
                         self.after(0, self._update_video_ui_status, vid, "⚠️ 자막없음", "#ff9800")
 
                 except YoutubeBlockedError as e:
                     res.status = VideoStatus.BLOCKED
                     res.error = str(e)
                     blocked_count += 1
+                    self.video_statuses[vid] = VideoStatus.BLOCKED
                     self.after(0, self._update_video_ui_status, vid, "🚫 봇차단(쿠키필요)", "#e65100")
 
                 except Exception as e:
                     res.status = VideoStatus.FAILED
                     res.error = str(e)
                     fail_count += 1
+                    self.video_statuses[vid] = VideoStatus.FAILED
                     self.after(0, self._update_video_ui_status, vid, "❌ 실패", "#f44336")
 
                 results.append(res)
@@ -577,6 +620,11 @@ class YouTubeTranscriptApp(ctk.CTk):
                     completed / total,
                     f"진행 중 ({completed}/{total}) | 성공: {success_count}, 자막없음: {no_sub_count}, 봇차단: {blocked_count}, 실패: {fail_count}",
                 )
+
+                # YouTube 봇 감지 방지를 위한 안전 지연 텀 (마지막 영상 제외)
+                if idx < total - 1 and base_delay > 0:
+                    jitter_delay = base_delay + random.uniform(0.1, 0.5)
+                    time.sleep(jitter_delay)
 
             # ── 파일 내보내기 ──
             exported_files = []
@@ -634,7 +682,7 @@ class YouTubeTranscriptApp(ctk.CTk):
                 f"{blocked}개 영상의 자막 추출이 YouTube IP 제한으로 인해 일시 차단되었습니다.\n\n"
                 f"👉 해결 방법:\n"
                 f"1. 브라우저에서 'cookies.txt' 파일을 추출합니다. (상단 [❓ 쿠키 얻는 법] 참고)\n"
-                f"2. 상단 [🍪 cookies.txt 선택]에 등록 후 다시 [대본 추출 시작]을 누르면 100% 정상 추출됩니다."
+                f"2. 상단 [🍪 cookies.txt 선택]에 등록 후 [🔄 실패/차단만 선택] → [대본 추출 시작]을 누르면 100% 정상 추출됩니다."
             )
             messagebox.showwarning("YouTube 봇 차단 감지", msg_blocked)
 
