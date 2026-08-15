@@ -44,17 +44,10 @@ async def test_no_subtitles():
     mock_api = MagicMock()
     mock_api.fetch.side_effect = TranscriptsDisabled("test_id")
 
-    mock_process = AsyncMock()
-    mock_process.communicate.return_value = (b"", b"")
-
     with (
         patch("app.transcript_fetcher.YouTubeTranscriptApi", return_value=mock_api),
-        patch("app.transcript_fetcher.asyncio.create_subprocess_exec", return_value=mock_process),
-        patch("app.transcript_fetcher.tempfile.TemporaryDirectory") as mock_tmpdir,
+        patch("app.transcript_fetcher._fetch_ytdlp_subs_sync", return_value=(None, None)),
     ):
-        mock_tmpdir.return_value.__enter__ = MagicMock(return_value="/tmp/fake")
-        mock_tmpdir.return_value.__exit__ = MagicMock(return_value=False)
-
         text, lang = await fetch_transcript("no_subs_id", ["en"])
         assert text is None
         assert lang is None
@@ -68,18 +61,11 @@ async def test_rate_limit_retry():
     mock_api = MagicMock()
     mock_api.fetch.side_effect = RequestBlocked("test_id")
 
-    mock_process = AsyncMock()
-    mock_process.communicate.return_value = (b"", b"")
-
     with (
         patch("app.transcript_fetcher.YouTubeTranscriptApi", return_value=mock_api),
-        patch("app.transcript_fetcher.asyncio.create_subprocess_exec", return_value=mock_process),
+        patch("app.transcript_fetcher._fetch_ytdlp_subs_sync", return_value=(None, None)),
         patch("app.transcript_fetcher.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
-        patch("app.transcript_fetcher.tempfile.TemporaryDirectory") as mock_tmpdir,
     ):
-        mock_tmpdir.return_value.__enter__ = MagicMock(return_value="/tmp/fake")
-        mock_tmpdir.return_value.__exit__ = MagicMock(return_value=False)
-
         text, lang = await fetch_transcript("rate_limit_id", ["en"])
         # RequestBlocked → 3번 재시도, 각각 sleep 호출
         assert mock_sleep.call_count >= 3
