@@ -4,11 +4,14 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
     HTTPException,
+    UploadFile,
+    File,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from typing import Dict
 import os
+import aiofiles
 
 from .models import (
     ResolveRequest,
@@ -16,6 +19,7 @@ from .models import (
     JobCreateRequest,
     JobCreateResponse,
     JobStatus,
+    VideoInfo,
 )
 from .url_parser import detect_url_type
 from .video_lister import list_videos
@@ -45,6 +49,9 @@ app.add_middleware(
 # WebSocket 연결 관리
 ws_connections: Dict[str, WebSocket] = {}
 
+# resolve 결과 캐시 (job 생성 시 video_info_map 참조용)
+_resolve_cache: Dict[str, Dict[str, VideoInfo]] = {}
+
 
 @app.get("/api/health")
 async def health_check():
@@ -72,6 +79,10 @@ async def resolve_url(req: ResolveRequest):
             detail=f"영상 목록을 가져오는 중 오류가 발생했습니다: {str(e)}",
         )
 
+    # video_info_map 캐시 (job 생성 시 활용)
+    video_map = {v.video_id: v for v in videos}
+    _resolve_cache[req.url] = video_map
+
     return ResolveResponse(
         url_type=url_type,
         title=title,
@@ -90,7 +101,10 @@ async def api_create_job(
             status_code=400, detail="추출할 영상을 선택해주세요."
         )
 
-    job_id = create_job(req)
+    # 캐시된 video_info_map 가져오기
+    video_info_map = _resolve_cache.get(req.source_url, {})
+
+    job_id = create_job(req, video_info_map)
     background_tasks.add_task(process_job, job_id, req, ws_connections)
     return JobCreateResponse(job_id=job_id)
 
@@ -111,7 +125,6 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
     ws_connections[job_id] = websocket
     try:
         while True:
-            # 클라이언트로부터의 메시지를 대기 (연결 유지)
             await websocket.receive_text()
     except WebSocketDisconnect:
         ws_connections.pop(job_id, None)
@@ -156,3 +169,40 @@ async def download_job_results(job_id: str, format: str = "zip"):
     return FileResponse(
         path, media_type=media_type, filename=filename
     )
+
+
+@app.post("/api/cookies")
+async def upload_cookies(file: UploadFile = File(...)):
+    """
+    YouTube 인증 쿠키 파일을 업로드한다.
+    봇 감지 차단 시 쿠키를 사용하여 인증을 우회할 수 있다.
+    """
+    cookie_dir = os.environ.get("OUTPUT_DIR", "data/output")
+    os.makedirs(cookie_dir, exist_ok=True)
+    cookie_path = os.path.join(cookie_dir, "cookies.txt")
+
+    async with aiofiles.open(cookie_path, "wb") as f:
+        content = await file.read()
+        await f.write(content)
+
+    # 환경변수에 쿠키 경로 설정
+    os.environ["COOKIE_FILE_PATH"] = cookie_path
+
+    return {
+        "message": "쿠키 파일이 업로드되었습니다.",
+        "path": cookie_path,
+    }
+
+
+@app.delete("/api/cookies")
+async def delete_cookies():
+    """업로드된 쿠키 파일을 삭제한다."""
+    cookie_dir = os.environ.get("OUTPUT_DIR", "data/output")
+    cookie_path = os.path.join(cookie_dir, "cookies.txt")
+
+    if os.path.exists(cookie_path):
+        os.remove(cookie_path)
+        os.environ.pop("COOKIE_FILE_PATH", None)
+        return {"message": "쿠키 파일이 삭제되었습니다."}
+
+    return {"message": "삭제할 쿠키 파일이 없습니다."}

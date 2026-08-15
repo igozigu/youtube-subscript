@@ -22,11 +22,17 @@ async def fetch_transcript(
     반환: (정제된 텍스트, 언어 코드) 또는 (None, None)
     """
     delay_ms = int(os.environ.get("FETCH_DELAY_MS", "1500"))
+    cookie_path = os.environ.get("COOKIE_FILE_PATH")
 
     # ── 1차 시도: youtube-transcript-api ──
     for attempt in range(3):
         try:
-            ytt_api = YouTubeTranscriptApi()
+            # 쿠키가 있으면 전달하여 봇 감지 우회
+            if cookie_path and os.path.exists(cookie_path):
+                ytt_api = YouTubeTranscriptApi(cookie_path=cookie_path)
+            else:
+                ytt_api = YouTubeTranscriptApi()
+
             transcript = await asyncio.to_thread(
                 ytt_api.fetch, video_id, languages=languages
             )
@@ -71,6 +77,11 @@ async def fetch_transcript(
             "-o", output_template,
             f"https://www.youtube.com/watch?v={video_id}",
         ]
+
+        # yt-dlp에도 쿠키 전달
+        if cookie_path and os.path.exists(cookie_path):
+            cmd.insert(1, "--cookies")
+            cmd.insert(2, cookie_path)
 
         try:
             process = await asyncio.create_subprocess_exec(

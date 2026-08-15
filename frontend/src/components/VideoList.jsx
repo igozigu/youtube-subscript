@@ -6,13 +6,15 @@ function VideoList({ resolvedData, onJobCreated, onCancel }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [recentCount, setRecentCount] = useState(10);
   const [languages, setLanguages] = useState('ko, en');
-  const [outputFormat, setOutputFormat] = useState('markdown');
+  const [outputFormat, setOutputFormat] = useState('zip');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Select all by default or first 50 if too many
-    const initialSelect = videos.slice(0, Math.min(videos.length, 50)).map(v => v.id);
+    // 기본: 전체 선택 (50개 이하) 또는 처음 50개
+    const initialSelect = videos
+      .slice(0, Math.min(videos.length, 50))
+      .map(v => v.video_id);
     setSelectedIds(new Set(initialSelect));
   }, [videos]);
 
@@ -20,22 +22,22 @@ function VideoList({ resolvedData, onJobCreated, onCancel }) {
     if (selectedIds.size === videos.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(videos.map(v => v.id)));
+      setSelectedIds(new Set(videos.map(v => v.video_id)));
     }
   };
 
   const selectRecent = () => {
     const count = parseInt(recentCount) || 0;
-    const ids = videos.slice(0, count).map(v => v.id);
+    const ids = videos.slice(0, count).map(v => v.video_id);
     setSelectedIds(new Set(ids));
   };
 
-  const toggleVideo = (id) => {
+  const toggleVideo = (videoId) => {
     const newSelected = new Set(selectedIds);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
+    if (newSelected.has(videoId)) {
+      newSelected.delete(videoId);
     } else {
-      newSelected.add(id);
+      newSelected.add(videoId);
     }
     setSelectedIds(newSelected);
   };
@@ -71,6 +73,11 @@ function VideoList({ resolvedData, onJobCreated, onCancel }) {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
+  const formatDate = (dateStr) => {
+    if (!dateStr || dateStr.length !== 8) return dateStr || '';
+    return `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
+  };
+
   return (
     <div className="card">
       <h2>{sourceTitle || '영상 목록'} ({videos.length}개)</h2>
@@ -78,7 +85,7 @@ function VideoList({ resolvedData, onJobCreated, onCancel }) {
       {error && <div className="error-message">{error}</div>}
       {selectedIds.size > 500 && (
         <div className="warning-message">
-          경고: 너무 많은 영상을 선택하셨습니다. 서버 부하로 인해 실패할 수 있습니다.
+          ⚠️ 500개 이상의 영상을 선택하셨습니다. 서버 부하 및 YouTube 차단 위험이 있으므로 배치 처리를 권장합니다.
         </div>
       )}
 
@@ -107,16 +114,16 @@ function VideoList({ resolvedData, onJobCreated, onCancel }) {
 
       <div className="video-items">
         {videos.map(video => (
-          <div key={video.id} className="video-item">
+          <div key={video.video_id} className="video-item">
             <input 
               type="checkbox" 
-              checked={selectedIds.has(video.id)}
-              onChange={() => toggleVideo(video.id)}
+              checked={selectedIds.has(video.video_id)}
+              onChange={() => toggleVideo(video.video_id)}
             />
             <div className="video-info">
               <div className="video-title">{video.title}</div>
               <div className="video-meta">
-                {video.uploadDate} {video.duration ? `• ${formatDuration(video.duration)}` : ''}
+                {formatDate(video.upload_date)} {video.duration ? `• ${formatDuration(video.duration)}` : ''}
               </div>
             </div>
           </div>
@@ -136,16 +143,25 @@ function VideoList({ resolvedData, onJobCreated, onCancel }) {
         </div>
         
         <div>
-          <label style={{display: 'block', marginBottom: '0.5rem'}}>출력 형식 (기본)</label>
+          <label style={{display: 'block', marginBottom: '0.5rem'}}>출력 형식</label>
           <div className="radio-group">
             <label className="radio-label">
               <input 
                 type="radio" 
                 name="format" 
-                value="markdown" 
-                checked={outputFormat === 'markdown'}
-                onChange={() => setOutputFormat('markdown')}
-              /> Markdown
+                value="zip" 
+                checked={outputFormat === 'zip'}
+                onChange={() => setOutputFormat('zip')}
+              /> ZIP (개별 파일)
+            </label>
+            <label className="radio-label">
+              <input 
+                type="radio" 
+                name="format" 
+                value="md" 
+                checked={outputFormat === 'md'}
+                onChange={() => setOutputFormat('md')}
+              /> Markdown (통합)
             </label>
             <label className="radio-label">
               <input 
@@ -156,15 +172,6 @@ function VideoList({ resolvedData, onJobCreated, onCancel }) {
                 onChange={() => setOutputFormat('json')}
               /> JSON
             </label>
-            <label className="radio-label">
-              <input 
-                type="radio" 
-                name="format" 
-                value="zip" 
-                checked={outputFormat === 'zip'}
-                onChange={() => setOutputFormat('zip')}
-              /> ZIP
-            </label>
           </div>
         </div>
       </div>
@@ -174,7 +181,7 @@ function VideoList({ resolvedData, onJobCreated, onCancel }) {
           취소
         </button>
         <button onClick={handleSubmit} disabled={selectedIds.size === 0 || loading}>
-          {loading ? '시작 중...' : '대본 추출 시작'}
+          {loading ? <><span className="spinner"></span> 시작 중...</> : `대본 추출 시작 (${selectedIds.size}개)`}
         </button>
       </div>
     </div>

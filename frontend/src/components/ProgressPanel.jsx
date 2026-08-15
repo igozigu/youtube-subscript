@@ -18,47 +18,30 @@ const STATUS_LABELS = {
 };
 
 function ProgressPanel({ jobData, onCompleted }) {
-  const [jobStatus, setJobStatus] = useState(jobData);
-  const [items, setItems] = useState({});
+  const [jobStatus, setJobStatus] = useState(null);
   const wsRef = useRef(null);
+  const jobId = jobData.job_id;
 
   useEffect(() => {
-    // Initial fetch to get items
-    getJobStatus(jobData.id).then(status => {
+    // 초기 상태 조회
+    getJobStatus(jobId).then(status => {
       setJobStatus(status);
-      const itemsMap = {};
-      if (status.items) {
-        status.items.forEach(item => {
-          itemsMap[item.videoId] = item;
-        });
-      }
-      setItems(itemsMap);
-      
       if (status.status === 'COMPLETED' || status.status === 'FAILED') {
         onCompleted();
       }
     }).catch(console.error);
 
-    // Setup WebSocket
+    // WebSocket 실시간 진행률
     wsRef.current = connectWebSocket(
-      jobData.id,
+      jobId,
       (data) => {
-        if (data.type === 'job_update') {
-          setJobStatus(prev => ({ ...prev, ...data.data }));
-          if (data.data.status === 'COMPLETED' || data.data.status === 'FAILED') {
-            onCompleted();
-          }
-        } else if (data.type === 'item_update') {
-          setItems(prev => ({
-            ...prev,
-            [data.data.videoId]: {
-              ...prev[data.data.videoId],
-              ...data.data
-            }
-          }));
+        // 백엔드는 전체 JobStatus JSON을 전송
+        setJobStatus(data);
+        if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+          onCompleted();
         }
       },
-      (error) => console.error("WS Error:", error)
+      (error) => console.error("WebSocket 오류:", error)
     );
 
     return () => {
@@ -66,13 +49,27 @@ function ProgressPanel({ jobData, onCompleted }) {
         wsRef.current.close();
       }
     };
-  }, [jobData.id, onCompleted]);
+  }, [jobId, onCompleted]);
 
-  const total = jobStatus.totalCount || 0;
-  const completed = jobStatus.completedCount || 0;
-  const failed = jobStatus.failedCount || 0;
-  const processed = completed + failed;
-  const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+  if (!jobStatus) {
+    return (
+      <div className="card">
+        <h2>작업 진행 상황</h2>
+        <div style={{padding: '2rem', textAlign: 'center', color: 'var(--text-muted)'}}>
+          <span className="spinner"></span> 초기화 중...
+        </div>
+      </div>
+    );
+  }
+
+  const total = jobStatus.total || 0;
+  const completed = jobStatus.completed || 0;
+  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const results = jobStatus.results || [];
+
+  const successCount = results.filter(r => r.status === 'COMPLETED').length;
+  const noSubCount = results.filter(r => r.status === 'NO_SUBTITLE').length;
+  const failedCount = results.filter(r => r.status === 'FAILED').length;
 
   return (
     <div className="card">
@@ -84,23 +81,28 @@ function ProgressPanel({ jobData, onCompleted }) {
         </div>
         <div className="progress-stats">
           <span>{percent}% 완료</span>
-          <span>{processed} / {total} 처리됨 (성공: {completed}, 실패/없음: {failed})</span>
+          <span>
+            {completed} / {total} 처리됨
+            {successCount > 0 && <> (성공: {successCount})</>}
+            {noSubCount > 0 && <> (자막없음: {noSubCount})</>}
+            {failedCount > 0 && <> (실패: {failedCount})</>}
+          </span>
         </div>
       </div>
 
       <div className="status-list">
-        {Object.values(items).map(item => (
-          <div key={item.id} className="status-item">
+        {results.map((item, idx) => (
+          <div key={item.video_id || idx} className="status-item">
             <div className="status-icon" title={STATUS_LABELS[item.status] || item.status}>
               {STATUS_ICONS[item.status] || '❓'}
             </div>
             <div style={{flex: 1}}>
-              <div>{item.title || item.videoId}</div>
+              <div>{item.title || item.video_id}</div>
               {item.error && <div className="status-error">{item.error}</div>}
             </div>
           </div>
         ))}
-        {Object.keys(items).length === 0 && (
+        {results.length === 0 && (
           <div style={{padding: '1rem', textAlign: 'center', color: 'var(--text-muted)'}}>
             초기화 중...
           </div>

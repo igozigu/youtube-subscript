@@ -38,6 +38,30 @@ export const getDownloadUrl = (jobId, format) => {
   return `${API_BASE}/jobs/${jobId}/download?format=${format}`;
 };
 
+export const uploadCookies = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(`${API_BASE}/cookies`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || '쿠키 업로드에 실패했습니다.');
+  }
+  return response.json();
+};
+
+export const deleteCookies = async () => {
+  const response = await fetch(`${API_BASE}/cookies`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error('쿠키 삭제에 실패했습니다.');
+  }
+  return response.json();
+};
+
 export const connectWebSocket = (jobId, onMessage, onError, onClose) => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/ws/jobs/${jobId}`;
