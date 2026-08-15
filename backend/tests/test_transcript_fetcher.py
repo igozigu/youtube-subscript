@@ -13,11 +13,11 @@ class MockSnippet:
 
 @pytest.mark.asyncio
 async def test_normal_subtitles():
-    """정상 자막이 있는 경우"""
-    mock_api = MagicMock()
-    mock_api.fetch.return_value = [MockSnippet("Hello world"), MockSnippet("Test")]
-
-    with patch("app.transcript_fetcher.YouTubeTranscriptApi", return_value=mock_api):
+    """yt-dlp 다이렉트 자막 또는 API를 통한 정상 추출"""
+    with patch(
+        "app.transcript_fetcher._fetch_subtitles_via_ytdlp_sync",
+        return_value=("Hello world\nTest", "en"),
+    ):
         text, lang = await fetch_transcript("test_id", ["en"])
         assert text is not None
         assert "Hello world" in text
@@ -26,14 +26,15 @@ async def test_normal_subtitles():
 
 @pytest.mark.asyncio
 async def test_auto_generated_subtitles():
-    """자동 생성 자막만 있는 경우 (정상 추출)"""
-    mock_api = MagicMock()
-    mock_api.fetch.return_value = [MockSnippet("자동 생성 자막입니다")]
-
-    with patch("app.transcript_fetcher.YouTubeTranscriptApi", return_value=mock_api):
+    """자동 생성 자막 정상 추출"""
+    with patch(
+        "app.transcript_fetcher._fetch_subtitles_via_ytdlp_sync",
+        return_value=("자동 생성 자막입니다", "ko"),
+    ):
         text, lang = await fetch_transcript("auto_sub_id", ["ko", "en"])
         assert text is not None
         assert "자동 생성 자막입니다" in text
+        assert lang == "ko"
 
 
 @pytest.mark.asyncio
@@ -45,8 +46,8 @@ async def test_no_subtitles():
     mock_api.fetch.side_effect = TranscriptsDisabled("test_id")
 
     with (
+        patch("app.transcript_fetcher._fetch_subtitles_via_ytdlp_sync", return_value=(None, None)),
         patch("app.transcript_fetcher.YouTubeTranscriptApi", return_value=mock_api),
-        patch("app.transcript_fetcher._fetch_ytdlp_subs_sync", return_value=(None, None)),
     ):
         text, lang = await fetch_transcript("no_subs_id", ["en"])
         assert text is None
@@ -54,19 +55,15 @@ async def test_no_subtitles():
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_retry():
-    """RequestBlocked 발생 시 재시도 로직 확인"""
-    from youtube_transcript_api._errors import RequestBlocked
-
+async def test_fallback_to_api():
+    """1차 yt-dlp 실패 시 2차 youtube-transcript-api fallback"""
     mock_api = MagicMock()
-    mock_api.fetch.side_effect = RequestBlocked("test_id")
+    mock_api.fetch.return_value = [MockSnippet("API Fallback 자막")]
 
     with (
+        patch("app.transcript_fetcher._fetch_subtitles_via_ytdlp_sync", return_value=(None, None)),
         patch("app.transcript_fetcher.YouTubeTranscriptApi", return_value=mock_api),
-        patch("app.transcript_fetcher._fetch_ytdlp_subs_sync", return_value=(None, None)),
-        patch("app.transcript_fetcher.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
     ):
-        text, lang = await fetch_transcript("rate_limit_id", ["en"])
-        # RequestBlocked → 3번 재시도, 각각 sleep 호출
-        assert mock_sleep.call_count >= 3
-        assert text is None
+        text, lang = await fetch_transcript("fallback_id", ["ko"])
+        assert text is not None
+        assert "API Fallback 자막" in text

@@ -9,3 +9,5 @@ pytest>=8.0.0
 pytest-asyncio>=1.0.0
 httpx>=0.28.0
 customtkinter>=6.0.0
+curl-cffi>=0.7.0
+requests>=2.31.0
