@@ -5,7 +5,7 @@ import aiofiles
 from fastapi import WebSocket
 from typing import Dict, Optional, List
 from .models import JobCreateRequest, JobStatus, VideoJobStatus, VideoStatus, VideoInfo
-from .transcript_fetcher import fetch_transcript
+from .transcript_fetcher import fetch_transcript, YoutubeBlockedError
 from .text_cleaner import sanitize_filename
 
 # 인메모리 작업 저장소
@@ -119,6 +119,9 @@ async def process_job(
             else:
                 res.status = VideoStatus.NO_SUBTITLE
 
+        except YoutubeBlockedError as e:
+            res.status = VideoStatus.BLOCKED
+            res.error = str(e)
         except Exception as e:
             res.status = VideoStatus.FAILED
             res.error = str(e)

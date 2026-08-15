@@ -36,6 +36,7 @@ class VideoStatus(str, Enum):
     PROCESSING = "PROCESSING"
     COMPLETED = "COMPLETED"
     NO_SUBTITLE = "NO_SUBTITLE"
+    BLOCKED = "BLOCKED"
     FAILED = "FAILED"
 
 

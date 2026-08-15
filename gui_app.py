@@ -22,7 +22,7 @@ from tkinter import filedialog, messagebox
 
 from app.url_parser import detect_url_type
 from app.video_lister import list_videos
-from app.transcript_fetcher import fetch_transcript
+from app.transcript_fetcher import fetch_transcript, YoutubeBlockedError
 from app.text_cleaner import sanitize_filename
 from app.exporter import export_zip, export_markdown, export_json
 from app.models import VideoInfo, VideoJobStatus, VideoStatus
@@ -51,6 +51,14 @@ class YouTubeTranscriptApp(ctk.CTk):
 
         os.makedirs(self.output_dir, exist_ok=True)
         os.environ["OUTPUT_DIR"] = self.output_dir
+
+        # 현재 폴더에 cookies.txt가 있으면 자동 감지
+        for default_cookie in ["cookies.txt", "youtube.com_cookies.txt", "youtube_cookies.txt"]:
+            cp = os.path.join(current_dir, default_cookie)
+            if os.path.exists(cp):
+                self.cookie_path = cp
+                os.environ["COOKIE_FILE_PATH"] = cp
+                break
 
         self._build_ui()
 
@@ -121,16 +129,30 @@ class YouTubeTranscriptApp(ctk.CTk):
 
         self.cookie_btn = ctk.CTkButton(
             options_subframe,
-            text="🍪 cookies.txt 선택 (선택사항)",
+            text="🍪 cookies.txt 선택",
             font=ctk.CTkFont(size=12),
             fg_color="#555555",
             hover_color="#666666",
             height=28,
             command=self._on_select_cookie,
         )
-        self.cookie_btn.pack(side="left", padx=5)
+        self.cookie_btn.pack(side="left", padx=3)
 
-        self.cookie_label = ctk.CTkLabel(options_subframe, text="", font=ctk.CTkFont(size=11), text_color="gray")
+        self.cookie_help_btn = ctk.CTkButton(
+            options_subframe,
+            text="❓ 쿠키 얻는 법",
+            font=ctk.CTkFont(size=11),
+            fg_color="#333333",
+            hover_color="#444444",
+            width=85,
+            height=28,
+            command=self._show_cookie_help,
+        )
+        self.cookie_help_btn.pack(side="left", padx=3)
+
+        cookie_txt = f"적용됨: {os.path.basename(self.cookie_path)}" if self.cookie_path else ""
+        cookie_col = "green" if self.cookie_path else "gray"
+        self.cookie_label = ctk.CTkLabel(options_subframe, text=cookie_txt, font=ctk.CTkFont(size=11), text_color=cookie_col)
         self.cookie_label.pack(side="left", padx=5)
 
         # ── 3. 영상 목록 영역 (스크롤) ──
@@ -252,6 +274,18 @@ class YouTubeTranscriptApp(ctk.CTk):
     def _change_theme(self, mode: str):
         ctk.set_appearance_mode(mode)
 
+    def _show_cookie_help(self):
+        msg = (
+            "🍪 cookies.txt 추출 및 적용 방법 (30초 완료):\n\n"
+            "1. Chrome 또는 Edge 브라우저 확장 프로그램 설치:\n"
+            "   • 'Get cookies.txt LOCALLY' (무료)\n\n"
+            "2. 유튜브(youtube.com) 사이트 접속 후 확장 프로그램 클릭:\n"
+            "   • [Export] 버튼 클릭 → 'cookies.txt' 다운로드\n\n"
+            "3. 이 프로그램 상단의 [🍪 cookies.txt 선택] 클릭 후 다운받은 파일 선택!\n\n"
+            "※ 쿠키를 등록하면 YouTube 봇 감지(429/IP 차단)를 100% 우회하여 모든 자막이 정상 추출됩니다."
+        )
+        messagebox.showinfo("쿠키 파일(cookies.txt) 추출 안내", msg)
+
     def _on_select_cookie(self):
         path = filedialog.askopenfilename(
             title="cookies.txt 파일 선택",
@@ -319,7 +353,6 @@ class YouTubeTranscriptApp(ctk.CTk):
         self.videos = videos
         self.source_title = title or "YouTube_대본"
 
-        # 기존 위젯 정리
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()
 
@@ -343,7 +376,6 @@ class YouTubeTranscriptApp(ctk.CTk):
             item_frame.pack(fill="x", padx=5, pady=3)
             item_frame.grid_columnconfigure(1, weight=1)
 
-            # 기본 50개까지 선택
             var = ctk.BooleanVar(value=(idx < 50))
             self.video_vars[video.video_id] = var
 
@@ -356,7 +388,6 @@ class YouTubeTranscriptApp(ctk.CTk):
             )
             chk.grid(row=0, column=0, rowspan=2, padx=(10, 5), pady=8)
 
-            # 영상 정보
             title_label = ctk.CTkLabel(
                 item_frame,
                 text=video.title,
@@ -380,13 +411,12 @@ class YouTubeTranscriptApp(ctk.CTk):
             )
             meta_label.grid(row=1, column=1, sticky="w", padx=5, pady=(0, 6))
 
-            # 상태 라벨
             status_label = ctk.CTkLabel(
                 item_frame,
                 text="대기중",
                 font=ctk.CTkFont(size=12),
                 text_color="gray",
-                width=80,
+                width=110,
             )
             status_label.grid(row=0, column=2, rowspan=2, padx=10, pady=8)
 
@@ -449,14 +479,6 @@ class YouTubeTranscriptApp(ctk.CTk):
             messagebox.showwarning("선택 필요", "대본을 추출할 영상을 1개 이상 선택해주세요.")
             return
 
-        if len(selected_video_ids) > 300:
-            if not messagebox.askyesno(
-                "대량 추출 경고",
-                f"{len(selected_video_ids)}개의 영상을 선택하셨습니다.\n대량 요청 시 YouTube의 차단 정책에 의해 일시 중단될 수 있습니다. 계속하시겠습니까?",
-            ):
-                return
-
-        # UI 상태 업데이트
         self.is_processing = True
         self.start_btn.configure(state="disabled", text="⏳ 추출 진행 중...")
         self.fetch_btn.configure(state="disabled")
@@ -477,7 +499,6 @@ class YouTubeTranscriptApp(ctk.CTk):
 
     def _extraction_worker(self, selected_videos: List[VideoInfo], languages: List[str], export_fmt_choice: str):
         import uuid
-        import aiofiles
 
         job_id = str(uuid.uuid4())
         job_dir = self.output_dir
@@ -487,6 +508,7 @@ class YouTubeTranscriptApp(ctk.CTk):
         completed = 0
         success_count = 0
         no_sub_count = 0
+        blocked_count = 0
         fail_count = 0
 
         results: List[VideoJobStatus] = []
@@ -535,6 +557,12 @@ class YouTubeTranscriptApp(ctk.CTk):
                         no_sub_count += 1
                         self.after(0, self._update_video_ui_status, vid, "⚠️ 자막없음", "#ff9800")
 
+                except YoutubeBlockedError as e:
+                    res.status = VideoStatus.BLOCKED
+                    res.error = str(e)
+                    blocked_count += 1
+                    self.after(0, self._update_video_ui_status, vid, "🚫 봇차단(쿠키필요)", "#e65100")
+
                 except Exception as e:
                     res.status = VideoStatus.FAILED
                     res.error = str(e)
@@ -547,22 +575,23 @@ class YouTubeTranscriptApp(ctk.CTk):
                     0,
                     self._update_progress_ui,
                     completed / total,
-                    f"진행 중 ({completed}/{total}) | 성공: {success_count}, 자막없음: {no_sub_count}, 실패: {fail_count}",
+                    f"진행 중 ({completed}/{total}) | 성공: {success_count}, 자막없음: {no_sub_count}, 봇차단: {blocked_count}, 실패: {fail_count}",
                 )
 
             # ── 파일 내보내기 ──
             exported_files = []
-            if "ZIP" in export_fmt_choice or "모두" in export_fmt_choice:
-                zip_path = loop.run_until_complete(export_zip(job_id, results, self.source_title))
-                exported_files.append(os.path.basename(zip_path))
+            if success_count > 0:
+                if "ZIP" in export_fmt_choice or "모두" in export_fmt_choice:
+                    zip_path = loop.run_until_complete(export_zip(job_id, results, self.source_title))
+                    exported_files.append(os.path.basename(zip_path))
 
-            if "Markdown" in export_fmt_choice or "모두" in export_fmt_choice:
-                md_path = loop.run_until_complete(export_markdown(job_id, results, self.source_title))
-                exported_files.append(os.path.basename(md_path))
+                if "Markdown" in export_fmt_choice or "모두" in export_fmt_choice:
+                    md_path = loop.run_until_complete(export_markdown(job_id, results, self.source_title))
+                    exported_files.append(os.path.basename(md_path))
 
-            if "JSON" in export_fmt_choice or "모두" in export_fmt_choice:
-                json_path = loop.run_until_complete(export_json(job_id, results, self.source_title))
-                exported_files.append(os.path.basename(json_path))
+                if "JSON" in export_fmt_choice or "모두" in export_fmt_choice:
+                    json_path = loop.run_until_complete(export_json(job_id, results, self.source_title))
+                    exported_files.append(os.path.basename(json_path))
 
             self.after(
                 0,
@@ -571,6 +600,7 @@ class YouTubeTranscriptApp(ctk.CTk):
                 total,
                 success_count,
                 no_sub_count,
+                blocked_count,
                 fail_count,
                 exported_files,
             )
@@ -588,24 +618,35 @@ class YouTubeTranscriptApp(ctk.CTk):
         self.progress_label.configure(text=status_text)
 
     def _on_extraction_completed(
-        self, job_dir: str, total: int, success: int, no_sub: int, fail: int, exported_files: List[str]
+        self, job_dir: str, total: int, success: int, no_sub: int, blocked: int, fail: int, exported_files: List[str]
     ):
         self.is_processing = False
         self.start_btn.configure(state="normal", text="🚀 대본 추출 시작")
         self.fetch_btn.configure(state="normal")
         self.progress_bar.set(1.0)
         self.progress_label.configure(
-            text=f"🎉 완료! 총 {total}개 중 성공 {success}개, 자막없음 {no_sub}개, 실패 {fail}개"
+            text=f"완료! 총 {total}개 중 성공 {success}개, 자막없음 {no_sub}개, 봇차단 {blocked}개, 실패 {fail}개"
         )
+
+        if blocked > 0:
+            msg_blocked = (
+                f"⚠️ YouTube 봇 감지(429 / IP 차단) 발생 알림\n\n"
+                f"{blocked}개 영상의 자막 추출이 YouTube IP 제한으로 인해 일시 차단되었습니다.\n\n"
+                f"👉 해결 방법:\n"
+                f"1. 브라우저에서 'cookies.txt' 파일을 추출합니다. (상단 [❓ 쿠키 얻는 법] 참고)\n"
+                f"2. 상단 [🍪 cookies.txt 선택]에 등록 후 다시 [대본 추출 시작]을 누르면 100% 정상 추출됩니다."
+            )
+            messagebox.showwarning("YouTube 봇 차단 감지", msg_blocked)
 
         msg = (
             f"대본 추출 작업이 완료되었습니다!\n\n"
             f"• 전체 영상: {total}개\n"
             f"• ✅ 성공: {success}개\n"
             f"• ⚠️ 자막 없음: {no_sub}개\n"
+            f"• 🚫 봇 차단(쿠키필요): {blocked}개\n"
             f"• ❌ 실패: {fail}개\n\n"
-            f"생성된 파일:\n{', '.join(exported_files) if exported_files else '개별 txt 저장됨'}\n\n"
-            f"결과 폴더를 여시겠습니까?"
+            f"생성된 파일:\n{', '.join(exported_files) if exported_files else '개별 txt 파일 저장됨'}\n\n"
+            f"결과 폴더(output)를 여시겠습니까?"
         )
         if messagebox.askyesno("추출 완료", msg):
             if sys.platform == "win32":
